@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Map;
 
-import org.infinispan.client.hotrod.RemoteCache;
+import org.infinispan.Cache;
 import org.infinispan.protostream.ProtobufUtil;
 import org.infinispan.protostream.SerializationContext;
 import org.infinispan.protostream.descriptors.GenericDescriptor;
@@ -23,7 +23,7 @@ import fax.play.model.House;
 public class AnyContainerTest {
 
    private Config config;
-   private RemoteCache<String, AnyContainer> cache;
+   private Cache<String, AnyContainer> cache;
 
    @BeforeAll
    public void beforeAll() throws Exception {

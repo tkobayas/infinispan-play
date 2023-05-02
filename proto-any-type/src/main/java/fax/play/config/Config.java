@@ -2,57 +2,75 @@ package fax.play.config;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-
-import org.infinispan.client.hotrod.RemoteCache;
-import org.infinispan.client.hotrod.RemoteCacheManager;
-import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
-import org.infinispan.client.hotrod.impl.ConfigurationProperties;
-import org.infinispan.commons.configuration.StringConfiguration;
-import org.infinispan.commons.marshall.ProtoStreamMarshaller;
-import org.infinispan.protostream.SerializationContext;
+import java.io.UncheckedIOException;
 
 import fax.play.model.AnyContainer;
 import fax.play.model.AnyContainerSchemaImpl;
+import org.infinispan.Cache;
+import org.infinispan.commons.marshall.ProtoStreamMarshaller;
+import org.infinispan.configuration.cache.CacheMode;
+import org.infinispan.configuration.cache.ClusteringConfigurationBuilder;
+import org.infinispan.configuration.cache.Configuration;
+import org.infinispan.configuration.cache.ConfigurationBuilder;
+import org.infinispan.configuration.global.GlobalConfigurationBuilder;
+import org.infinispan.globalstate.ConfigurationStorage;
+import org.infinispan.manager.DefaultCacheManager;
+import org.infinispan.protostream.SerializationContext;
 
 public class Config implements Closeable {
 
-   public static final String CACHE_NAME = "any-cache";
-   private final RemoteCacheManager cacheManager;
-   private final ProtoStreamMarshaller protoMarshaller = new ProtoStreamMarshaller();
+    public static final String CACHE_NAME = "any-cache";
+    private DefaultCacheManager cacheManager;
+    private final ProtoStreamMarshaller protoMarshaller = new ProtoStreamMarshaller();
+    private Configuration cacheConfiguration;
 
-   public Config() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
-      builder.addServer().host("127.0.0.1").port(ConfigurationProperties.DEFAULT_HOTROD_PORT)
-            .security()
-            .authentication()
-            .username("user")
-            .password("pass")
-            .marshaller(protoMarshaller)
-            // handle the schema client side
-            .addContextInitializer(new AnyContainerSchemaImpl());
+    public Config() {
 
-      cacheManager = new RemoteCacheManager(builder.build());
-   }
+        GlobalConfigurationBuilder global = new GlobalConfigurationBuilder();
+        global.serialization()
+                .marshaller(protoMarshaller)
+                .addContextInitializer(new AnyContainerSchemaImpl());
 
-   public RemoteCache<String, AnyContainer> recreateCache() throws IOException {
-      cacheManager.administration().removeCache(CACHE_NAME);
+        global.globalState()
+                .enable()
+                .persistentLocation("global/state")
+                .configurationStorage(ConfigurationStorage.OVERLAY);
 
-      String configuration;
-      try (InputStream resourceAsStream = Config.class.getClassLoader().getResourceAsStream("any-cache.yaml")) {
-         configuration = new String(resourceAsStream.readAllBytes(), StandardCharsets.UTF_8);
-      }
+        cacheManager = new DefaultCacheManager(global.build());
 
-      return cacheManager.administration().createCache(CACHE_NAME, new StringConfiguration(configuration));
-   }
+        // Create a distributed cache with synchronous replication.
+        ConfigurationBuilder builder = new ConfigurationBuilder();
+        builder.persistence().passivation(false)
+                .addSoftIndexFileStore()
+                .shared(false)
+                .dataLocation("cache/data")
+                .indexLocation("cache/index");
 
-   public SerializationContext getSerializationContext() {
-      return protoMarshaller.getSerializationContext();
-   }
+        builder.unsafe().unreliableReturnValues(true);
 
-   @Override
-   public void close() {
-      cacheManager.close();
-   }
+        ClusteringConfigurationBuilder clusteringConfigurationBuilder = builder.clustering()
+                .cacheMode(CacheMode.LOCAL);
+
+        clusteringConfigurationBuilder.encoding().mediaType("application/x-protostream");
+
+        cacheConfiguration = builder.build();
+    }
+
+    public Cache<String, AnyContainer> recreateCache() {
+        cacheManager.administration().removeCache(CACHE_NAME);
+        return cacheManager.administration().createCache(CACHE_NAME, cacheConfiguration); // programmatically created cacheConfiguration rather than from any-cache.yaml
+    }
+
+    public SerializationContext getSerializationContext() {
+        return protoMarshaller.getSerializationContext();
+    }
+
+    @Override
+    public void close() {
+        try {
+            cacheManager.close();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
 }
