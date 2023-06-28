@@ -16,7 +16,9 @@
         <maven.compiler.target>11</maven.compiler.target>
 
         <version.infinispan>14.0.0.Dev04</version.infinispan>
-        <version.protostream>4.5.0-SNAPSHOT</version.protostream>
+<!--        <version.protostream>4.5.0-SNAPSHOT</version.protostream>-->
+        <version.protostream>4.6.0.Final</version.protostream>
+
     </properties>
 
     <dependencies>
